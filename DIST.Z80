@@ -58,6 +58,7 @@ BDOS:	PUSH	IX
 ;
 INIT:	LD	HL,TICKISR	;install the 64Hz user interrupt handler
 	CALL	MBB_SET_USR_INT	;(ACC starts at 0 in the loaded image)
+	EI			;BASIC never enables interrupts itself
 	LD	A,2
 	INC	A
 	LD	DE,NOTZ80
