@@ -18,6 +18,15 @@ a copy of RunCPM for linux, and  our own `build.sh` script.
 
 # Build it 
 
+First, init the submodule:
+
+```
+git submodule init 
+git submodule update
+```
+
+Then run the build script:
+
 ```
 ./build.sh
 ```
