@@ -67,8 +67,7 @@ INIT:	LD	HL,TICKISR	;install the 64Hz user interrupt handler
 ;	  firmware keeps calling TICKISR after we exit, and the next program
 ;	  load overwrites that address mid-interrupt and wedges the tick.
 ;
-REBOOT:	DI
-	LD	HL,0		;0 = "no handler"; firmware null-checks it
+REBOOT:	LD	HL,0		;0 = "no handler"; firmware null-checks it
 	CALL	MBB_SET_USR_INT
 	RST	0
 ;
@@ -117,11 +116,19 @@ PTIME:	PUSH	BC
 ;	  Outputs: DEHL = time (centiseconds)
 ;	  Destroys: A,B,C,D,E,H,L,F
 ;
-TICKS:	DI			;read the 40-bit accumulator atomically
-	LD	HL,(ACC)	;L,H = bytes 0,1
+; Lock-free snapshot of the 40-bit accumulator - we must NOT disable
+; interrupts here: in a tight TIME-reading loop that would starve the
+; firmware's 64Hz tick and stall it.  Instead read it, then check the low
+; byte hasn't moved; if a tick landed mid-read, retry (can loop at most once
+; - ticks are 15ms apart, the read is microseconds).
+TICKS:	LD	HL,(ACC)	;L,H = bytes 0,1
 	LD	DE,(ACC+2)	;E,D = bytes 2,3
 	LD	A,(ACC+4)	;A   = byte 4 (MSB)
-	EI
+	LD	C,A		;hold MSB across the re-check
+	LD	A,(ACC)		;re-read byte 0
+	CP	L		;moved since first read? -> torn, retry
+	JR	NZ,TICKS
+	LD	A,C		;MSB back into A
 	LD	B,4		;>>4 across A:D:E:H:L (MSB..LSB)
 TKSH:	SRL	A
 	RR	D
