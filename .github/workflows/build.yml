@@ -1,0 +1,59 @@
+name: build
+
+# Build BBC BASIC (Z80) for the MicroBeast on every push, and publish the
+# resulting binaries as a GitHub Release.
+#
+#   * push to main        -> rolling pre-release tagged "latest"
+#   * push a tag (v*)     -> permanent release with that version
+#   * any other branch    -> build only, binaries kept as a run artifact
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write          # needed to create/update Releases
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with BBCZ80 submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build RunCPM (native CP/M emulator)
+        run: |
+          git clone --depth 1 https://github.com/MockbaTheBorg/RunCPM /tmp/RunCPM
+          make -C /tmp/RunCPM/RunCPM -f Makefile.posix CCP=INTERNAL
+          install -m 755 /tmp/RunCPM/RunCPM/RunCPM tools/RunCPM
+
+      - name: Assemble & link (CP/M / MicroBeast edition)
+        run: |
+          ./build.sh           # -> build/BBCBASIC.COM
+          ls -l build/BBCBASIC.COM
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bbcbasic-${{ github.sha }}
+          path: build/BBCBASIC.COM
+
+      # --- Releases ---------------------------------------------------------
+      # Refresh the rolling "latest" tag so it points at this commit.
+      - name: Reset 'latest' release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete latest --cleanup-tag --yes || true
+
+      - name: Publish release
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest build' }}
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          target_commitish: ${{ github.sha }}
+          files: build/BBCBASIC.COM
