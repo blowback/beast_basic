@@ -15,8 +15,11 @@
 ;
 ;R.T.RUSSELL, 11-03-1984, 03-05-1989, 12-05-2024
 ;
+; MicroBeast port by Ant, 2026-06-26
+
 CPM	EQU	5
 COLD	EQU	200H
+MBB_SET_USR_INT	EQU	0FDC7H	;firmware: install 64Hz user int (HL=handler)
 ;
 	GLOBAL	CLRSCN
 	GLOBAL	PUTCSR
@@ -53,7 +56,9 @@ BDOS:	PUSH	IX
 ;
 ;INIT	- Perform hardware initialisation (if any).
 ;
-INIT:	LD	A,2
+INIT:	LD	HL,TICKISR	;install the 64Hz user interrupt handler
+	CALL	MBB_SET_USR_INT	;(ACC starts at 0 in the loaded image)
+	LD	A,2
 	INC	A
 	LD	DE,NOTZ80
 	JP	PE,FAIL
@@ -110,33 +115,27 @@ PTIME:	PUSH	BC
 	POP	BC
 	RET
 ;
-; Get OS elapsed-time clock
-;  Outputs: DEHL = time (centiseconds)
-; Destroys: A,B,C,D,E,H,L,F
+;TICKS	- Return elapsed time in centiseconds.
+;	  The 64Hz ISR adds 25 to the 40-bit accumulator ACC every tick,
+;	  so ACC = ticks*25 and  cs = ACC>>4  exactly (1 tick = 25/16 cs).
+;	  We just read ACC atomically and shift it right four bits; the
+;	  low 32 bits are the answer.  TIME= offset handled by GTIME/PTIME.
+;	  Outputs: DEHL = time (centiseconds)
+;	  Destroys: A,B,C,D,E,H,L,F
 ;
-TICKS:	LD	C,248		;RunCPM-specific function call
-	CALL	BDOS
-	PUSH	DE
-	EX	DE,HL
-	OR	A
-	SBC	HL,HL
-	LD	BC,-5
-	LD	A,32
-DIV0:	ADD	HL,BC
-	JR	C,DIV1
-	SBC	HL,BC
-DIV1:	RL	E
-	RL	D
-	EX	(SP),HL
-	RL	L
-	RL	H
-	EX	(SP),HL
-	ADC	HL,HL
-	DEC	A
-	JR	NZ,DIV0
-	EX	DE,HL
-	POP	DE
-	RET
+TICKS:	DI			;read the 40-bit accumulator atomically
+	LD	HL,(ACC)	;L,H = bytes 0,1
+	LD	DE,(ACC+2)	;E,D = bytes 2,3
+	LD	A,(ACC+4)	;A   = byte 4 (MSB)
+	EI
+	LD	B,4		;>>4 across A:D:E:H:L (MSB..LSB)
+TKSH:	SRL	A
+	RR	D
+	RR	E
+	RR	H
+	RR	L
+	DJNZ	TKSH
+	RET			;DEHL = centiseconds (top nibble in A discarded)
 ;
 ;INKEY	- Sample keyboard with specified wait.
 ;   	  Inputs: HL = Time to wait (centiseconds)
@@ -203,25 +202,49 @@ COUT:	PUSH	BC
 	POP	BC
 	RET
 ;
-	IF	$ GT 1F0H
+;TICKISR - 64Hz user interrupt handler.  Adds 25 to the 40-bit
+;	   accumulator ACC, so ACC = ticks*25 and TICKS need only >>4.
+;	   Firmware preserves registers around this call, so we needn't
+;	   save them - but we MUST NOT touch the alternate register set
+;	   (EXX / EX AF,AF').  Return with a normal RET.
+;
+TICKISR:	LD	HL,ACC
+	LD	A,(HL)
+	ADD	A,25
+	LD	(HL),A		;byte 0
+	LD	B,4		;propagate carry through bytes 1..4
+TIC1:	INC	HL
+	LD	A,(HL)
+	ADC	A,0
+	LD	(HL),A
+	DJNZ	TIC1
+	RET
+;
+; DIST-private storage - free to live anywhere below the fixed key table.
+OFFLO:	DEFW	0		;TIME OFFSET LO
+OFFHI:	DEFW	0		;TIME OFFSET HI
+ACC:	DEFS	5		;40-bit accumulator = (64Hz ticks)*25
+;
+	IF	$ GT 1F4H
 	ERROR	'INSUFFICIENT SPACE'
 	ENDIF
 ;
-	ORG	1F0H
+; WIDTH and the editing keys are read by CMOS.Z80 as (IX-12)..(IX-1)
+; with IX=200H, so this 12-byte block must stay at 1F4H-1FFH.
 ;
-OFFLO:	DEFW	0		;TIME OFFSET LO
-OFFHI:	DEFW	0		;TIME OFFSET HI
-	DEFB	80		;WIDTH
-	DEFB	'G' AND 1FH	;CURSOR UP
-	DEFB	'O' AND 1FH	;CURSOR DOWN
-	DEFB	'F' AND 1FH	;START OF LINE
-	DEFB	'N' AND 1FH	;END OF LINE
-	DEFB	'X' AND 1FH	;DELETE TO END OF LINE
-	DEFB	08H		;BACKSPACE & DELETE
-	DEFB	'U' AND 1FH	;DEL TO START OF LINE
-	DEFB	'J' AND 1FH	;CURSOR LEFT
-	DEFB	'L' AND 1FH	;CURSOR RIGHT
-	DEFB	'R' AND 1FH	;DELETE CHARACTER
-	DEFB	'Q' AND 1FH	;INS/OVR TOGGLE
+	ORG	1F4H
+;
+	DEFB	80		;WIDTH                (IX-12)
+	DEFB	'G' AND 1FH	;CURSOR UP            (IX-11)
+	DEFB	'O' AND 1FH	;CURSOR DOWN          (IX-10)
+	DEFB	'F' AND 1FH	;START OF LINE        (IX-9)
+	DEFB	'N' AND 1FH	;END OF LINE          (IX-8)
+	DEFB	'X' AND 1FH	;DELETE TO END OF LINE (IX-7)
+	DEFB	08H		;BACKSPACE & DELETE   (IX-6)
+	DEFB	'U' AND 1FH	;DEL TO START OF LINE (IX-5)
+	DEFB	'J' AND 1FH	;CURSOR LEFT          (IX-4)
+	DEFB	'L' AND 1FH	;CURSOR RIGHT         (IX-3)
+	DEFB	'R' AND 1FH	;DELETE CHARACTER     (IX-2)
+	DEFB	'Q' AND 1FH	;INS/OVR TOGGLE       (IX-1)
 ;
 FIN:	END
