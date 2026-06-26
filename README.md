@@ -25,13 +25,13 @@ The stock BBCBASIC.COM works very well on MicroBeast, with a couple of exception
 
  This port provides the shims to make those functions work.
 
-*N.B.*: `VDU12`, `VDU30`, and `VDU31,a,b` still won't work! AFAICT, there is no clean way 
+**N.B.**: `VDU12`, `VDU30`, and `VDU31,a,b` still won't work! AFAICT, there is no clean way 
 to patch them in.
 
 # Did you change the editing keys?
 
 I mean, I tried. But BeastOS messes about with the cursor keys, CP/M messes about 
-with them too, VT52 consoles send `ESC` prefixed sequences for cursor keys, and BBC 
+with them too, VT52 terminals send `ESC` prefixed sequences for cursor keys, and BBC 
 BASIC is adamant that `ESC` means `Escape` (as in "break out of program"). There is 
 no portable way to achieve any sort of sane layout, so I've left it in the defaults,
 which are:
@@ -53,7 +53,7 @@ which are:
 I know, I know. Why do up & left do the same thing? and down / right? Near as I can 
 tell, they are redundant in this *line based* editor, but are holdovers from the original
 BBC Micro's rather splendid full-screen copy edit malarky (which incidentally also exists 
-on RisciX!) Sadly that method doesn't exist in other versions...I wonder if Acorn patented it?
+on RISCiX!) Sadly that method doesn't exist in other versions...I wonder if Acorn patented it?
 
 
 # Build it 
