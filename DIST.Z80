@@ -63,9 +63,14 @@ INIT:	LD	HL,TICKISR	;install the 64Hz user interrupt handler
 	EI			;BASIC never enables interrupts itself
 	JP	COLD
 ;
-;REBOOT	- Switch off interrupts and return to CP/M
+;REBOOT	- Disarm our 64Hz handler and return to CP/M.  Without this the
+;	  firmware keeps calling TICKISR after we exit, and the next program
+;	  load overwrites that address mid-interrupt and wedges the tick.
 ;
-REBOOT:	RST	0
+REBOOT:	DI
+	LD	HL,0		;0 = "no handler"; firmware null-checks it
+	CALL	MBB_SET_USR_INT
+	RST	0
 ;
 ;GTIME	- Read elapsed-time clock.
 ;  	  Outputs: DEHL = elapsed time (centiseconds)
