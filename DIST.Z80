@@ -54,26 +54,14 @@ BDOS:	PUSH	IX
 	POP	IX
 	RET
 ;
-;INIT	- Perform hardware initialisation (if any).
+;INIT	- Perform hardware initialisation.  The MicroBeast is always a
+;	  Z80 running CP/M 2.2, so the original processor / OS-version
+;	  checks (and their error messages) are omitted to free space.
 ;
 INIT:	LD	HL,TICKISR	;install the 64Hz user interrupt handler
 	CALL	MBB_SET_USR_INT	;(ACC starts at 0 in the loaded image)
 	EI			;BASIC never enables interrupts itself
-	LD	A,2
-	INC	A
-	LD	DE,NOTZ80
-	JP	PE,FAIL
-	LD	C,12
-	CALL	BDOS
-	OR	A
-	LD	DE,NOTV2
-	JP	NZ,COLD
-FAIL:	LD	C,9
-	CALL	BDOS
-	RST	0
-;
-NOTZ80:	DEFB	'Not a Z80$'
-NOTV2:	DEFB	'Not CP/M 2$'
+	JP	COLD
 ;
 ;REBOOT	- Switch off interrupts and return to CP/M
 ;
@@ -166,18 +154,30 @@ WAIT:	PUSH	HL
 INKEY1:	POP	BC
 	RET
 ;
-;CLS	- Clear screen.
-;	  (Customise to suit your VDU)
+;CLS	- Clear screen (VT52: home cursor, then erase to end of screen).
 ; 	  Destroys: A,D,E,H,L,F
 ;
-CLS:	RET
+CLS:	LD	DE,CLSSTR
+	LD	C,9		;BDOS print $-terminated string
+	JP	BDOS
+CLSSTR:	DEFB	1BH,'H',1BH,'J','$'	;ESC H (home)  ESC J (erase to end)
 ;
-;PCSR	- Move cursor to specified position.
+;PCSR	- Move cursor to specified position (VT52: ESC Y row col,
+;	  each coordinate biased by 20H).
 ;   	  Inputs: DE = horizontal position (LHS=0)
 ;                 HL = vertical position (TOP=0)
 ; 	  Destroys: A,D,E,H,L,F
 ;
-PCSR:	RET
+PCSR:	LD	A,1BH		;ESC
+	CALL	COUT
+	LD	A,'Y'
+	CALL	COUT
+	LD	A,L		;row    (L survives COUT)
+	ADD	A,20H
+	CALL	COUT
+	LD	A,E		;column (E survives COUT)
+	ADD	A,20H
+	JP	COUT
 ;
 ;GCSR	- Return cursor coordinates.
 ;   	  Outputs:  DE = X coordinate (POS)
